@@ -25,7 +25,18 @@
 의존성 버전 범위는 package.json에서, 정확한 설치 버전은
 package-lock.json에서 관리합니다.
 
-Tailwind CSS, Zustand, TanStack Query는 아직 설치하지 않았습니다.
+## 공통 라이브러리
+
+- Tailwind CSS: Vite 플러그인 및 공통 CSS 연결
+- Zustand: 설치 완료, 기능별 store는 추후 작성
+- TanStack Query: QueryClientProvider 연결
+- TanStack Query Devtools: 개발 환경에서 사용
+- React Router: BrowserRouter 연결, 페이지별 라우트는 추후 작성
+- Prettier: 공통 코드 포맷 적용
+- ESLint: 코드 검사 및 Prettier 충돌 방지 설정 적용
+
+코드 포맷 적용: npm run format
+코드 포맷 검사: npm run format:check
 
 ## 설치 및 실행
 
@@ -49,10 +60,10 @@ npm run build
 
 ## 브랜치 규칙
 
-| 브랜치 | 용도 |
-| --- | --- |
-| main | 배포 브랜치 |
-| dev | 개발 통합 브랜치 |
+| 브랜치         | 용도                     |
+| -------------- | ------------------------ |
+| main           | 배포 브랜치              |
+| dev            | 개발 통합 브랜치         |
 | 타입/#이슈번호 | 작업 브랜치. 예: feat/#1 |
 
 - 작업 브랜치는 최신 dev에서 생성합니다.
@@ -74,17 +85,17 @@ npm run build
 - 본문은 변경 내용과 이유를 추가로 설명해야 할 때만 작성합니다.
 - 관련 이슈는 작업 브랜치 이름과 PR에 표시합니다.
 
-| 타입 | 용도 |
-| --- | --- |
-| feat | 새로운 기능 추가 |
-| fix | 버그 수정 |
-| refactor | 기능 변경 없는 코드 구조 개선 |
-| docs | 문서 작성 및 수정 |
-| chore | 기타 유지보수 작업 |
-| build | 빌드 설정 및 의존성 변경 |
-| test | 테스트 추가 및 수정 |
-| style | 들여쓰기·공백 등 코드 형식 변경 |
-| design | UI·CSS 변경 |
+| 타입     | 용도                            |
+| -------- | ------------------------------- |
+| feat     | 새로운 기능 추가                |
+| fix      | 버그 수정                       |
+| refactor | 기능 변경 없는 코드 구조 개선   |
+| docs     | 문서 작성 및 수정               |
+| chore    | 기타 유지보수 작업              |
+| build    | 빌드 설정 및 의존성 변경        |
+| test     | 테스트 추가 및 수정             |
+| style    | 들여쓰기·공백 등 코드 형식 변경 |
+| design   | UI·CSS 변경                     |
 
 예: feat: 공지사항 목록 조회 구현
 예: chore: 저장소 협업 기반 초기 설정
