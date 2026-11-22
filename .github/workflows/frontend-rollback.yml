@@ -1,0 +1,93 @@
+name: Frontend Rollback
+
+# Read-only preflight. Do not change SSM, copy or upload objects,
+# invalidate CloudFront, or revert Git from this workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      git_sha:
+        description: Full Git commit SHA of the deployment manifest to verify
+        required: true
+        type: string
+      run_id:
+        description: GitHub Actions run ID stored in that deployment manifest
+        required: true
+        type: string
+      run_attempt:
+        description: GitHub Actions run attempt stored in that deployment manifest
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    name: Require main branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Require main branch
+        shell: bash
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::Rollback preflight can only run from refs/heads/main"
+            exit 1
+          fi
+
+  preflight:
+    name: Read-only rollback preflight
+    needs: guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: ieee-frontend-production-deploy
+      cancel-in-progress: false
+      queue: max
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Require main branch
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::Rollback preflight can only run from refs/heads/main"
+            exit 1
+          fi
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Check AWS CLI
+        run: aws --version
+
+      - name: Configure AWS credentials
+        if: ${{ success() && github.ref == 'refs/heads/main' }}
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::015454941458:role/IEEE-github-actions-frontend-rollback-role
+          aws-region: ap-northeast-2
+          allowed-account-ids: '015454941458'
+          role-session-name: ${{ github.run_id }}
+
+      - name: Run rollback preflight
+        if: ${{ success() && github.ref == 'refs/heads/main' }}
+        env:
+          GIT_SHA: ${{ inputs.git_sha }}
+          RUN_ID: ${{ inputs.run_id }}
+          RUN_ATTEMPT: ${{ inputs.run_attempt }}
+        run: |
+          node scripts/deployment/preflight.mjs "$GIT_SHA" "$RUN_ID" "$RUN_ATTEMPT"
