@@ -231,8 +231,23 @@ test('stops before the origin bucket when the manifest cannot be read or does no
   const cases = [
     {
       name: 'get-object failure',
-      options: { body: value, getStatus: 1, getStderr: 'AccessDenied' },
-      pattern: /get-object failed: AccessDenied/,
+      options: {
+        body: value,
+        getStatus: 1,
+        getStdout: '{',
+        getStderr: ' AccessDenied ',
+      },
+      pattern: { message: 'manifest: get-object failed: AccessDenied' },
+    },
+    {
+      name: 'command failure without stderr',
+      options: { body: value, getStatus: 1, getStdout: '{', getStderr: '  ' },
+      pattern: { message: 'manifest: get-object failed' },
+    },
+    {
+      name: 'valid JSON with the wrong shape',
+      options: { body: value, getStdout: '[]' },
+      pattern: { message: 'manifest: invalid get-object response' },
     },
     {
       name: 'damaged stdout',

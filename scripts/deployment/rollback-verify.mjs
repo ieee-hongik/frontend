@@ -1,19 +1,18 @@
-import { spawnSync } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { open, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
+import { runAws, runCommand, runObjectCommand } from './aws-cli.mjs'
 import { manifestKey, validateManifest } from './manifest.mjs'
-import schema from './manifest-v1.schema.json' with { type: 'json' }
+import { requireClosed } from './deploy-state.mjs'
+import { restoreOrder } from './rollback.mjs'
 
 const originBucket = 'ieee-hongik-frontend-015454941458'
 const region = 'ap-northeast-2'
 const distributionId = 'E3FJUV685123A4'
 const cloudfrontDomain = 'dm3mb697l7lxs.cloudfront.net'
-const deployStateName = '/ieee/frontend/production/deploy-state'
-const restoreOrder = ['favicon.svg', 'icons.svg', 'index.html']
 // The distribution's default root object is index.html.
 const entryPages = [
   ['/index.html', 'index.html'],
@@ -23,53 +22,10 @@ const entryPages = [
 ]
 const requestTimeoutMs = 30_000
 const hashChunkBytes = 64 * 1024
-const shaPattern = new RegExp(schema.properties.gitSha.pattern, 'u')
 const invalidationIdPattern = /^I[A-Z0-9]{8,128}$/u
 
 function fail(message) {
   throw new Error(message)
-}
-
-function commandFailed(scope, action, result) {
-  const detail = typeof result?.stderr === 'string' ? result.stderr.trim() : ''
-  fail(detail ? `${scope}: ${action}: ${detail}` : `${scope}: ${action}`)
-}
-
-function parsedJson(text, message) {
-  try {
-    return JSON.parse(text)
-  } catch {
-    fail(message)
-  }
-}
-
-function parsedObject(text, message) {
-  const value = parsedJson(text, message)
-  if (!value || typeof value !== 'object' || Array.isArray(value)) fail(message)
-  return value
-}
-
-function knownState(value) {
-  return (
-    value === 'open' ||
-    value === 'closed' ||
-    (typeof value === 'string' &&
-      value.startsWith('allow:') &&
-      shaPattern.test(value.slice('allow:'.length)))
-  )
-}
-
-function getParameterArgs() {
-  return [
-    'ssm',
-    'get-parameter',
-    '--name',
-    deployStateName,
-    '--region',
-    region,
-    '--output',
-    'json',
-  ]
 }
 
 function headArgs(key) {
@@ -123,26 +79,6 @@ function waitInvalidationArgs(id) {
   ]
 }
 
-function readState(run, scope) {
-  const result = run(getParameterArgs())
-  if (result?.status !== 0) commandFailed(scope, 'get-parameter failed', result)
-  const body = parsedObject(
-    result.stdout,
-    `${scope}: invalid get-parameter response`,
-  )
-  const parameter = body.Parameter
-  if (!parameter || typeof parameter !== 'object' || Array.isArray(parameter))
-    fail(`${scope}: invalid get-parameter response`)
-  if (parameter.Name !== deployStateName) fail(`${scope}: unexpected parameter`)
-  if (parameter.Type !== 'String') fail(`${scope}: unexpected type`)
-  if (!knownState(parameter.Value)) fail(`${scope}: unexpected state`)
-  return parameter.Value
-}
-
-function requireClosed(run, scope) {
-  if (readState(run, scope) !== 'closed') fail(`${scope}: not closed`)
-}
-
 function assertRestored(restored) {
   if (!Array.isArray(restored)) fail('restore: unexpected restore key')
   for (const [index, key] of restored.entries()) {
@@ -176,9 +112,7 @@ function restoreItem(manifest, key) {
 }
 
 function headObject(run, key) {
-  const result = run(headArgs(key))
-  if (result?.status !== 0) commandFailed(key, 'head-object failed', result)
-  return parsedObject(result.stdout, `${key}: invalid head-object response`)
+  return runObjectCommand(run, headArgs(key), key, 'head-object')
 }
 
 // CopyObject can change the version id and does not have to keep an MD5 ETag.
@@ -240,12 +174,7 @@ async function hashFile(file, scope, limit) {
 async function readObject(run, args, scope, limit) {
   const file = join(tmpdir(), `frontend-verify-${randomUUID()}`)
   try {
-    const result = run([...args, file])
-    if (result?.status !== 0) commandFailed(scope, 'get-object failed', result)
-    const body = parsedObject(
-      result.stdout,
-      `${scope}: invalid get-object response`,
-    )
+    const body = runObjectCommand(run, [...args, file], scope, 'get-object')
     const bytes = await hashFile(file, scope, limit)
     return { body, bytes }
   } finally {
@@ -319,18 +248,19 @@ function invalidationIdFrom(body) {
 }
 
 function invalidate(run) {
-  const created = run(createInvalidationArgs())
-  if (created?.status !== 0)
-    commandFailed('cloudfront', 'create-invalidation failed', created)
-  const id = invalidationIdFrom(
-    parsedObject(
-      created.stdout,
-      'cloudfront: invalid create-invalidation response',
-    ),
+  const body = runObjectCommand(
+    run,
+    createInvalidationArgs(),
+    'cloudfront',
+    'create-invalidation',
   )
-  const waited = run(waitInvalidationArgs(id))
-  if (waited?.status !== 0)
-    commandFailed('cloudfront', 'invalidation-completed failed', waited)
+  const id = invalidationIdFrom(body)
+  runCommand(
+    run,
+    waitInvalidationArgs(id),
+    'cloudfront',
+    'invalidation-completed',
+  )
   return id
 }
 
@@ -436,18 +366,6 @@ async function verifyHashedAsset(run, item) {
   return readCurrent(run, item, item.key, compareAssetMeta)
 }
 
-function runAws(args) {
-  if (!Array.isArray(args) || args.some((arg) => typeof arg !== 'string'))
-    fail('aws: expected string arguments')
-  // shell is disabled so the invalidation path is not expanded by a shell.
-  const result = spawnSync('aws', args, { encoding: 'utf8', shell: false })
-  return {
-    status: result.status,
-    stdout: result.stdout ?? '',
-    stderr: result.stderr ?? '',
-  }
-}
-
 // Runs only after rollback() has restored every object and left the freeze
 // closed. Reads that state, compares restored bytes, invalidates CloudFront,
 // then checks the live responses. Never writes SSM or copies, deletes, or uploads.
@@ -460,7 +378,7 @@ export async function verifyRollback(
   } = {},
 ) {
   const manifest = acceptedManifest(result)
-  requireClosed(run, 'deploy-state: confirm')
+  requireClosed(run, region, 'deploy-state: confirm')
   const restored = new Map()
   for (const key of restoreOrder) {
     const bytes = await verifyRestoredObject(run, restoreItem(manifest, key))

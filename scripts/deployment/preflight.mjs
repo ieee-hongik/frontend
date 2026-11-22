@@ -1,9 +1,9 @@
-import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import process from 'node:process'
+import { runAws, runObjectCommand } from './aws-cli.mjs'
 import { manifestKey, validateManifest } from './manifest.mjs'
 import schema from './manifest-v1.schema.json' with { type: 'json' }
 
@@ -18,25 +18,6 @@ const { minimum: attemptMin, maximum: attemptMax } =
 
 function fail(message) {
   throw new Error(message)
-}
-
-function commandFailed(scope, action, result) {
-  const detail = typeof result?.stderr === 'string' ? result.stderr.trim() : ''
-  fail(detail ? `${scope}: ${action}: ${detail}` : `${scope}: ${action}`)
-}
-
-function parsedJson(text, message) {
-  try {
-    return JSON.parse(text)
-  } catch {
-    fail(message)
-  }
-}
-
-function parsedObject(text, message) {
-  const value = parsedJson(text, message)
-  if (!value || typeof value !== 'object' || Array.isArray(value)) fail(message)
-  return value
 }
 
 function s3args(command, pairs, positional = []) {
@@ -129,16 +110,15 @@ function headArgs(key, versionId) {
 }
 
 function fetchHead(run, args, key) {
-  const result = run(args)
-  if (result?.status !== 0) commandFailed(key, 'head-object failed', result)
-  return parsedObject(result.stdout, `${key}: invalid head-object response`)
+  return runObjectCommand(run, args, key, 'head-object')
 }
 
 // Exact key only: the rollback role cannot list the manifest bucket.
 async function fetchManifest(run, key) {
   const file = join(tmpdir(), `frontend-preflight-${randomUUID()}.json`)
   try {
-    const result = run(
+    runObjectCommand(
+      run,
       s3args(
         'get-object',
         [
@@ -147,28 +127,16 @@ async function fetchManifest(run, key) {
         ],
         [file],
       ),
+      'manifest',
+      'get-object',
     )
-    if (result?.status !== 0)
-      commandFailed('manifest', 'get-object failed', result)
-    parsedObject(result.stdout, 'manifest: invalid get-object response')
-    let text
     try {
-      text = await readFile(file, 'utf8')
+      return JSON.parse(await readFile(file, 'utf8'))
     } catch {
       fail('manifest: invalid manifest JSON')
     }
-    return parsedJson(text, 'manifest: invalid manifest JSON')
   } finally {
     await rm(file, { force: true })
-  }
-}
-
-function runAws(args) {
-  const result = spawnSync('aws', args, { encoding: 'utf8' })
-  return {
-    status: result.status,
-    stdout: result.stdout ?? '',
-    stderr: result.stderr ?? '',
   }
 }
 

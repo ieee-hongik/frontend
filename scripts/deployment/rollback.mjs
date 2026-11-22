@@ -1,56 +1,16 @@
-import { spawnSync } from 'node:child_process'
+import { runAws, runObjectCommand } from './aws-cli.mjs'
 import { preflight } from './preflight.mjs'
-import schema from './manifest-v1.schema.json' with { type: 'json' }
+import { deployStateName, readState, requireClosed } from './deploy-state.mjs'
 
-const deployStateName = '/ieee/frontend/production/deploy-state'
-const restoreOrder = ['favicon.svg', 'icons.svg', 'index.html']
+export const restoreOrder = Object.freeze([
+  'favicon.svg',
+  'icons.svg',
+  'index.html',
+])
 const copyPathPattern = /^[A-Za-z0-9._~-]+$/u
-const shaPattern = new RegExp(schema.properties.gitSha.pattern, 'u')
 
 function fail(message) {
   throw new Error(message)
-}
-
-function commandFailed(scope, action, result) {
-  const detail = typeof result?.stderr === 'string' ? result.stderr.trim() : ''
-  fail(detail ? `${scope}: ${action}: ${detail}` : `${scope}: ${action}`)
-}
-
-function parsedJson(text, message) {
-  try {
-    return JSON.parse(text)
-  } catch {
-    fail(message)
-  }
-}
-
-function parsedObject(text, message) {
-  const value = parsedJson(text, message)
-  if (!value || typeof value !== 'object' || Array.isArray(value)) fail(message)
-  return value
-}
-
-function knownState(value) {
-  return (
-    value === 'open' ||
-    value === 'closed' ||
-    (typeof value === 'string' &&
-      value.startsWith('allow:') &&
-      shaPattern.test(value.slice('allow:'.length)))
-  )
-}
-
-function getParameterArgs(region) {
-  return [
-    'ssm',
-    'get-parameter',
-    '--name',
-    deployStateName,
-    '--region',
-    region,
-    '--output',
-    'json',
-  ]
 }
 
 function putClosedArgs(region) {
@@ -71,36 +31,15 @@ function putClosedArgs(region) {
   ]
 }
 
-function readState(run, region, scope) {
-  const result = run(getParameterArgs(region))
-  if (result?.status !== 0) commandFailed(scope, 'get-parameter failed', result)
-  const body = parsedObject(
-    result.stdout,
-    `${scope}: invalid get-parameter response`,
-  )
-  const parameter = body.Parameter
-  if (!parameter || typeof parameter !== 'object' || Array.isArray(parameter))
-    fail(`${scope}: invalid get-parameter response`)
-  if (parameter.Name !== deployStateName) fail(`${scope}: unexpected parameter`)
-  if (parameter.Type !== 'String') fail(`${scope}: unexpected type`)
-  if (!knownState(parameter.Value)) fail(`${scope}: unexpected state`)
-  return parameter.Value
-}
-
 function writeClosed(run, region) {
-  const result = run(putClosedArgs(region))
-  if (result?.status !== 0)
-    commandFailed('deploy-state', 'put-parameter failed', result)
-  const body = parsedObject(
-    result.stdout,
-    'deploy-state: invalid put-parameter response',
+  const body = runObjectCommand(
+    run,
+    putClosedArgs(region),
+    'deploy-state',
+    'put-parameter',
   )
   if (!Number.isSafeInteger(body.Version) || body.Version < 1)
     fail('deploy-state: invalid put-parameter response')
-}
-
-function requireClosed(run, region, scope) {
-  if (readState(run, region, scope) !== 'closed') fail(`${scope}: not closed`)
 }
 
 function orderRestore(manifest) {
@@ -152,12 +91,11 @@ function copyArgs(bucket, region, item) {
 }
 
 function copyVersion(run, bucket, region, item) {
-  const result = run(copyArgs(bucket, region, item))
-  if (result?.status !== 0)
-    commandFailed(item.key, 'copy-object failed', result)
-  const body = parsedObject(
-    result.stdout,
-    `${item.key}: invalid copy-object response`,
+  const body = runObjectCommand(
+    run,
+    copyArgs(bucket, region, item),
+    item.key,
+    'copy-object',
   )
   const copy = body.CopyObjectResult
   if (!copy || typeof copy !== 'object' || Array.isArray(copy))
@@ -166,17 +104,6 @@ function copyVersion(run, bucket, region, item) {
     fail(`${item.key}: copy-object: invalid ETag`)
   if (body.CopySourceVersionId !== item.versionId)
     fail(`${item.key}: copy-object: unexpected CopySourceVersionId`)
-}
-
-function runAws(args) {
-  if (!Array.isArray(args) || args.some((arg) => typeof arg !== 'string'))
-    fail('aws: expected string arguments')
-  const result = spawnSync('aws', args, { encoding: 'utf8', shell: false })
-  return {
-    status: result.status,
-    stdout: result.stdout ?? '',
-    stderr: result.stderr ?? '',
-  }
 }
 
 export async function rollback(input, { run = runAws } = {}) {
