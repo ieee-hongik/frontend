@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Frontend deployment manifest v1",
+  "description": "Stored in ieee-hongik-frontend-deployments-015454941458-ap-northeast-2-an at manifests/<git-sha>/<run-id>-<run-attempt>.json. Object keys must also be unique across both lists.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "gitSha",
+    "runId",
+    "runAttempt",
+    "completedAt",
+    "repository",
+    "ref",
+    "originBucket",
+    "awsRegion",
+    "distributionId",
+    "restore",
+    "hashedAssets"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "gitSha": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{40})(?![\\s\\S])"
+    },
+    "runId": {
+      "type": "string",
+      "pattern": "^(?:[1-9][0-9]*)(?![\\s\\S])"
+    },
+    "runAttempt": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "completedAt": {
+      "type": "string",
+      "pattern": "^(?:[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\\.[0-9]+)?Z)(?![\\s\\S])",
+      "format": "date-time"
+    },
+    "repository": {
+      "const": "ieee-hongik/frontend"
+    },
+    "ref": {
+      "const": "refs/heads/main"
+    },
+    "originBucket": {
+      "const": "ieee-hongik-frontend-015454941458"
+    },
+    "awsRegion": {
+      "const": "ap-northeast-2"
+    },
+    "distributionId": {
+      "const": "E3FJUV685123A4"
+    },
+    "restore": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "required": [
+          "key",
+          "versionId",
+          "contentType",
+          "cacheControl",
+          "etag",
+          "size"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "enum": ["index.html", "favicon.svg", "icons.svg"]
+          },
+          "versionId": {
+            "type": "string",
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f]+(?![\\s\\S])",
+            "not": {
+              "const": "null"
+            }
+          },
+          "contentType": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9!#$%&'*+.^_`|~-]+/[A-Za-z0-9!#$%&'*+.^_`|~-]+(?: *; *[A-Za-z0-9!#$%&'*+.^_`|~-]+=(?:[A-Za-z0-9!#$%&'*+.^_`|~-]+|\"(?:[^\"\\\\\\x00-\\x1f\\x7f]|\\\\[\\x20-\\x7e])*\"))*(?![\\s\\S])"
+          },
+          "cacheControl": {
+            "type": "string",
+            "pattern": "^(?:[^\\s\\x00-\\x1f\\x7f](?:[^\\x00-\\x1f\\x7f]*[^\\s\\x00-\\x1f\\x7f])?)(?![\\s\\S])"
+          },
+          "etag": {
+            "$ref": "#/$defs/etag"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          }
+        }
+      },
+      "allOf": [
+        {
+          "contains": {
+            "properties": {
+              "key": {
+                "const": "index.html"
+              }
+            }
+          }
+        },
+        {
+          "contains": {
+            "properties": {
+              "key": {
+                "const": "favicon.svg"
+              }
+            }
+          }
+        },
+        {
+          "contains": {
+            "properties": {
+              "key": {
+                "const": "icons.svg"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "hashedAssets": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "required": ["key", "etag", "size"],
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "$ref": "#/$defs/assetKey"
+          },
+          "etag": {
+            "$ref": "#/$defs/etag"
+          },
+          "size": {
+            "$ref": "#/$defs/size"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "assetKey": {
+      "type": "string",
+      "pattern": "^(?:assets/(?:[A-Za-z0-9_~-][A-Za-z0-9._~-]*/)*[A-Za-z0-9_~-][A-Za-z0-9._~-]*-[A-Za-z0-9_-]{8}\\.[A-Za-z0-9]+(?:\\.[A-Za-z0-9]+)*)(?![\\s\\S])"
+    },
+    "etag": {
+      "type": "string",
+      "pattern": "^(?:(?:\"[^\"\\s\\x00-\\x1f\\x7f]+\"|[^\"\\s\\x00-\\x1f\\x7f]+))(?![\\s\\S])"
+    },
+    "size": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  }
+}
