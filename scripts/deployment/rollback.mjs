@@ -204,4 +204,4 @@ export async function rollback(input, { run = runAws } = {}) {
   }
 }
 
-// No CLI. frontend-rollback.yml must not invoke this module yet.
+// No CLI. scripts/deployment/rollback-runner.mjs is the workflow entry point.
