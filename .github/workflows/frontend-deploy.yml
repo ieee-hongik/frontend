@@ -17,7 +17,6 @@ jobs:
     concurrency:
       group: ieee-frontend-production-deploy
       cancel-in-progress: false
-      queue: max
 
     env:
       AWS_REGION: ap-northeast-2
